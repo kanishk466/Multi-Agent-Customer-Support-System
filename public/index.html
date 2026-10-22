@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Multi-Agent Support Demo</title>
+<!--
+  Served by the socket.io server itself rather than a CDN. A CDN copy breaks
+  the entire demo behind a proxy or firewall (ERR_TUNNEL_CONNECTION_FAILED),
+  and this project already has the file on disk.
+-->
+<script src="/socket.io/socket.io.js"></script>
+<style>
+  :root {
+    --bg: #0f1117;
+    --panel: #171a23;
+    --panel-2: #1e2230;
+    --border: #2a2f40;
+    --text: #e6e9f0;
+    --muted: #8b93a7;
+    --accent: #4f8cff;
+    --user: #24344f;
+    --bot: #1e2230;
+    --warn: #b45309;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    display: flex;
+    justify-content: center;
+    min-height: 100vh;
+  }
+  .app { width: min(760px, 100%); display: flex; flex-direction: column; height: 100vh; }
+  header {
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+    background: var(--panel);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  h1 { font-size: 15px; margin: 0; font-weight: 600; }
+  .modes { display: flex; gap: 6px; flex-wrap: wrap; }
+  .chip {
+    font-size: 11px;
+    padding: 3px 8px;
+    border-radius: 999px;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    font-family: ui-monospace, monospace;
+  }
+  .chip b { color: var(--text); font-weight: 600; }
+  #messages { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 14px; }
+  .msg { max-width: 82%; padding: 11px 14px; border-radius: 12px; line-height: 1.5; font-size: 14px; white-space: pre-wrap; }
+  .msg.user { align-self: flex-end; background: var(--user); border-bottom-right-radius: 4px; }
+  .msg.bot  { align-self: flex-start; background: var(--bot); border: 1px solid var(--border); border-bottom-left-radius: 4px; }
+  .meta { font-size: 11px; color: var(--muted); margin-top: 7px; padding-top: 7px; border-top: 1px solid var(--border); font-family: ui-monospace, monospace; }
+  .meta .agent { color: var(--accent); }
+  .sources { margin-top: 6px; display: flex; flex-direction: column; gap: 3px; }
+  .source { font-size: 11px; color: var(--muted); }
+  .handoff {
+    align-self: flex-start;
+    background: rgba(180, 83, 9, 0.14);
+    border: 1px solid var(--warn);
+    color: #fbbf24;
+    padding: 8px 12px;
+    border-radius: 10px;
+    font-size: 12px;
+    max-width: 82%;
+  }
+  .typing { align-self: flex-start; color: var(--muted); font-size: 13px; padding: 0 4px; }
+  form { display: flex; gap: 8px; padding: 14px 20px; border-top: 1px solid var(--border); background: var(--panel); }
+  input {
+    flex: 1;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 11px 14px;
+    border-radius: 10px;
+    font-size: 14px;
+    outline: none;
+  }
+  input:focus { border-color: var(--accent); }
+  button {
+    background: var(--accent);
+    color: white;
+    border: 0;
+    padding: 0 18px;
+    border-radius: 10px;
+    font-size: 14px;
+    cursor: pointer;
+    font-weight: 600;
+  }
+  button.ghost { background: transparent; border: 1px solid var(--border); color: var(--muted); font-weight: 500; }
+  .suggest { display: flex; gap: 6px; padding: 0 20px 10px; flex-wrap: wrap; background: var(--panel); }
+  .suggest button { background: var(--panel-2); border: 1px solid var(--border); color: var(--muted); font-size: 12px; font-weight: 500; padding: 6px 10px; }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <h1>Multi-Agent Support Demo</h1>
+    <div class="modes" id="modes"></div>
+  </header>
+
+  <div id="messages"></div>
+  <div class="typing" id="typing" style="display:none">agent soch raha hai…</div>
+
+  <div class="suggest">
+    <button data-q="Refund chahiye, 10 din pehle subscribe kiya tha">refund chahiye</button>
+    <button data-q="Login nahi ho raha, password reset email bhi nahi aaya">login nahi ho raha</button>
+    <button data-q="Team plan ka pricing kya hai?">pricing kya hai</button>
+    <button data-q="Kuch bhi samajh nahi aaya">kuch bhi samajh nahi</button>
+  </div>
+
+  <form id="form">
+    <input id="input" autocomplete="off" placeholder="Apna sawaal likho…" />
+    <button type="submit">Bhejo</button>
+    <button type="button" class="ghost" id="reset">Reset</button>
+  </form>
+</div>
+
+<script>
+  // Fail loudly instead of dying silently: if this script ever breaks, the
+  // chat box below would accept text and do nothing at all.
+  if (typeof io === 'undefined') {
+    document.getElementById('messages').innerHTML =
+      '<div class="msg bot">Could not load the socket.io client. ' +
+      'Check that /socket.io/socket.io.js is reachable.</div>';
+    throw new Error('socket.io client failed to load');
+  }
+
+  const socket = io();
+  const messages = document.getElementById('messages');
+  const form = document.getElementById('form');
+  const input = document.getElementById('input');
+  const typing = document.getElementById('typing');
+  let sessionId = null;
+
+  function scroll() { messages.scrollTop = messages.scrollHeight; }
+
+  function addBubble(role, text) {
+    const el = document.createElement('div');
+    el.className = 'msg ' + role;
+    el.textContent = text;
+    messages.appendChild(el);
+    scroll();
+    return el;
+  }
+
+  socket.on('session', (data) => {
+    sessionId = data.sessionId;
+    if (!data.modes) return;
+    document.getElementById('modes').innerHTML = Object.entries(data.modes)
+      .map(([k, v]) => `<span class="chip">${k}: <b>${v}</b></span>`)
+      .join('');
+  });
+
+  socket.on('agent:typing', (data) => {
+    typing.style.display = data.typing ? 'block' : 'none';
+    scroll();
+  });
+
+  socket.on('chat:reply', (reply) => {
+    const el = addBubble('bot', reply.content);
+
+    const meta = document.createElement('div');
+    meta.className = 'meta';
+    meta.innerHTML =
+      `<span class="agent">${reply.agent ?? 'unknown'}</span> · ${reply.intent} · ` +
+      `confidence ${reply.confidence.toFixed(2)} · "${reply.reason}"`;
+    el.appendChild(meta);
+
+    if (reply.sources && reply.sources.length) {
+      const sources = document.createElement('div');
+      sources.className = 'sources';
+      sources.innerHTML = reply.sources
+        .map((s) => `<div class="source">↳ ${s.source} · score ${s.score}</div>`)
+        .join('');
+      el.appendChild(sources);
+    }
+
+    if (reply.needsHuman) {
+      const handoff = document.createElement('div');
+      handoff.className = 'handoff';
+      handoff.textContent = `Human handoff · ticket #${reply.ticketId} created`;
+      messages.appendChild(handoff);
+    }
+    scroll();
+  });
+
+  socket.on('error', (data) => {
+    const el = addBubble('bot', '⚠ ' + data.message);
+    el.style.color = '#f87171';
+  });
+
+  socket.on('chat:reset', () => {
+    messages.innerHTML = '';
+    sessionId = null;
+  });
+
+  form.addEventListener('submit', (event) => {
+    event.preventDefault();
+    const content = input.value.trim();
+    if (!content) return;
+    addBubble('user', content);
+    socket.emit('chat:send', { content, sessionId });
+    input.value = '';
+  });
+
+  document.getElementById('reset').addEventListener('click', () => {
+    socket.emit('chat:reset', { sessionId });
+  });
+
+  document.querySelectorAll('.suggest button').forEach((button) => {
+    button.addEventListener('click', () => {
+      input.value = button.dataset.q;
+      form.requestSubmit();
+    });
+  });
+</script>
+</body>
+</html>
