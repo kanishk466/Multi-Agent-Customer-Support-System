@@ -1,8 +1,6 @@
 # Multi-Agent Customer Support System
 
-Ek live chat support system jisme ek **Router Agent** customer ka message
-classify karta hai, aur ek **specialist agent** (tech / billing / sales) RAG
-ke zariye company docs se jawab deta hai.
+A live chat support system where a **Router Agent** classifies the customer's message, and a **specialist agent** (tech / billing / sales) answers using RAG from company docs.
 
 ```
   👤 User  ──Socket.IO──►  NestJS Server
@@ -25,9 +23,7 @@ ke zariye company docs se jawab deta hai.
                               Groq / Gemini API (free tier)
 ```
 
-**5 components, aur har ek optional hai** - bina kisi API key ya database ke
-bhi server chalta hai (offline demo mode), taaki pehle flow samajh ho, phir
-infrastructure lage.
+**5 components, each one optional** — the server runs even without any API key or database (offline demo mode), so you can understand the flow first, then add infrastructure later.
 
 ---
 
@@ -35,18 +31,16 @@ infrastructure lage.
 
 ```bash
 npm install
-cp .env.example .env          # keys optional hain
-npm run doctor                # har service individually check karo
+cp .env.example .env          # keys are optional
+npm run doctor                # check each service individually
 npm run dev
 ```
 
-Browser mein <http://localhost:3100> kholo - ek chat UI khulega jo directly
-server se judta hai. Port `.env` mein `PORT` se badal sakte ho.
+Open <http://localhost:3100> in your browser — a chat UI will open that connects directly to the server. You can change the port via `PORT` in `.env`.
 
-### 0. `npm run doctor` - pehle yeh chalao
+### 0. `npm run doctor` — run this first
 
-Har external dependency ko alag alag check karta hai, credentials print
-kiye bina, aur har failure par ek actionable hint deta hai:
+Checks every external dependency individually, without printing credentials, and gives an actionable hint for each failure:
 
 ```
 [PASS] .env           GROQ_API_KEY=gsk_...  GEMINI_API_KEY=AQ.A...  ...
@@ -58,29 +52,20 @@ kiye bina, aur har failure par ek actionable hint deta hai:
 [PASS] Redis          PING -> PONG (216ms)
 ```
 
-Qdrant check sirf read nahi karta - **upsert/query/delete ka full round-trip**
-bhi chalata hai, kyunki invalid point IDs aur missing payload indexes sirf
-write par hi pakde jaate hain. Postgres check batata hai ki `messages` /
-`tickets` mein data bhi pada hai ya nahi.
+The Qdrant check doesn't just read — it runs a **full upsert/query/delete round-trip**, because invalid point IDs and missing payload indexes are only caught on writes. The Postgres check tells you whether `messages` / `tickets` actually contain data or not.
 
-> **Model names go stale.** Groq aur Gemini apne models bina warning ke
-> hata dete hain. Agar `doctor` par 404 aaye toh model name galat hai - asli
-> list `GET https://api.groq.com/openai/v1/models` aur
-> `https://generativelanguage.googleapis.com/v1beta/models?key=...` se
-> milti hai.
+> **Model names go stale.** Groq and Gemini remove models without warning. If `doctor` returns a 404, the model name is wrong — the actual list is available at `GET https://api.groq.com/openai/v1/models` and `https://generativelanguage.googleapis.com/v1beta/models?key=...`.
 
-### 1. LLM key lagao (sabse pehle yahi)
+### 1. Add an LLM key (do this first)
 
-`.env` mein se **ek** key bharo:
+Fill in **one** key in `.env`:
 
 | Provider | Free tier | Link |
 |---|---|---|
-| **Groq** (recommended) | 30 req/min, bahut fast | <https://console.groq.com/keys> |
+| **Groq** (recommended) | 30 req/min, very fast | <https://console.groq.com/keys> |
 | Google Gemini | 15 req/min | <https://aistudio.google.com/apikey> |
 
-Dono bharoge toh Groq primary aur Gemini fallback ban jaata hai - free tiers
-pe 429 (rate limit) aana normal hai, do provider hone se debugging aasan
-hoti hai.
+If you fill in both, Groq becomes the primary and Gemini the fallback — on free tiers, 429 (rate limit) errors are normal, and having two providers makes debugging easier.
 
 ### 2. Infra (optional, Docker)
 
@@ -88,47 +73,41 @@ hoti hai.
 docker compose up -d
 ```
 
-| Container | Port | Fallback agar band ho |
+| Container | Port | Fallback when down |
 |---|---|---|
 | `qdrant` | 6333 | in-memory cosine store |
 | `postgres` | 5432 | in-memory array |
 | `redis` | 6379 | in-memory Map |
 
-Qdrant chalu ho toh `npm run seed` se docs index kar sakte ho.
+When Qdrant is running, you can index docs with `npm run seed`.
 
-### 3. RAG ke liye embeddings
+### 3. Embeddings for RAG
 
-`GEMINI_API_KEY` ho toh **Gemini embeddings** use hote hain (real semantic
-search). Bina key ke ek **local hash embedding** chalta hai - poori pipeline
-waise hi chalti hai, bas relevance quality low hoti hai. Yeh jaan boojh kar
-hai taaki RAG zero-config pe bhi demo ho sake.
+If `GEMINI_API_KEY` is set, **Gemini embeddings** are used (real semantic search). Without a key, a **local hash embedding** runs instead — the entire pipeline works the same way, but relevance quality is low. This is intentional so that RAG can demo with zero config.
 
-> Agar RAG "kaam nahi kar raha" lag raha ho, toh sabse pehle check karo ke
-> embeddings cloud pe hain ya local hash pe.
+> If RAG "doesn't seem to be working," the first thing to check is whether embeddings are running on the cloud or on the local hash.
 
 ---
 
-## Demo Karne Ke Liye 4 Conversations
+## 4 Demo Conversations
 
-Chat UI mein yeh try karo (ya `npm run smoke`):
+Try these in the chat UI (or run `npm run smoke`):
 
 ```
-"Refund chahiye, 10 din pehle subscribe kiya tha"
-   → router: billing (0.9+) → billing agent → 30 din wali policy cite karega
+"I need a refund, I subscribed 10 days ago"
+   → router: billing (0.9+) → billing agent → will cite the 30-day policy
 
-"Login nahi ho raha, password reset email bhi nahi aaya"
-   → router: tech → tech agent → numbered steps dega
+"Can't log in, password reset email never arrived"
+   → router: tech → tech agent → will provide numbered steps
 
-"Team plan ka pricing kya hai?"
-   → router: sales → sales agent → 19 / 49 dollar wala plan
+"What's the pricing for the team plan?"
+   → router: sales → sales agent → $19 / $49 plan details
 
-"kya policy hai iska naam kya hai aaj mausam kaisa hai"
-   → confidence < 0.55 → handoff agent → ticket create hoga
+"what is the policy what is its name how is the weather today"
+   → confidence < 0.55 → handoff agent → a ticket will be created
 ```
 
-UI mein har reply ke neeche **agent, intent, confidence, reason aur sources**
-dikhte hain - yahi wo cheez hai jo multi-agent system ko debuggable banati
-hai.
+Below every reply in the UI, **agent, intent, confidence, reason, and sources** are displayed — this is exactly what makes a multi-agent system debuggable.
 
 ---
 
@@ -136,12 +115,12 @@ hai.
 
 ```
 src/
-├── main.ts                     # bootstrap: Redis + PG init, phir Nest
+├── main.ts                     # bootstrap: Redis + PG init, then Nest
 ├── app.module.ts               # ServeStatic (demo UI) + ChatModule
 │
 ├── config/
 │   ├── env.ts                  # zod-validated env, optional keys = undefined
-│   ├── redis.ts                # lazy connect, warn karke chalta hai
+│   ├── redis.ts                # lazy connect, warns and continues
 │   ├── postgres.ts             # pool + idempotent schema (messages, tickets)
 │   └── qdrant.ts               # connectivity check on boot
 │
@@ -151,7 +130,7 @@ src/
 │
 ├── agents/                     # ← LangGraph orchestration
 │   ├── agent.types.ts          # SupportState (shared blackboard)
-│   ├── prompts.ts              # router + har specialist ka system prompt
+│   ├── prompts.ts              # router + each specialist's system prompt
 │   ├── router.agent.ts         # 1 LLM call → { intent, confidence, reason }
 │   ├── specialist.agent.ts     # shared impl + Tech/Billing/Sales/General
 │   ├── graph.service.ts        # StateGraph: nodes + conditional edges
@@ -169,11 +148,11 @@ src/
 │   ├── gemini.provider.ts
 │   └── llm.types.ts
 │
-├── sessions/session.service.ts # Redis: kaunsa agent active hai (TTL 30 min)
+├── sessions/session.service.ts # Redis: which agent is active (TTL 30 min)
 ├── history/history.service.ts  # Postgres: permanent chat history
 └── tickets/ticket.service.ts   # handoff tickets
 
-knowledge/                      # RAG ka source - apni files daalo
+knowledge/                      # RAG source — add your own files here
 ├── billing-policy.md
 ├── tech-troubleshooting.md
 └── sales-faq.md
@@ -181,16 +160,16 @@ knowledge/                      # RAG ka source - apni files daalo
 
 ---
 
-## Ek Message Ka Poora Safar
+## The Full Journey of a Single Message
 
 ```
-User: "login nahi ho raha"
+User: "can't log in"
   │
-  ▼ ① chat.gateway.ts - Socket.IO event receive + validate
+  ▼ ① chat.gateway.ts - Socket.IO event received + validated
   │
-  ▼ ② session.service.ts - Redis mein session check (naya toh banao)
+  ▼ ② session.service.ts - check session in Redis (create if new)
   │
-  ▼ ③ history.service.ts - Postgres se pichli messages lo (context)
+  ▼ ③ history.service.ts - fetch previous messages from Postgres (context)
   │
   ▼ ④ graph.service.ts - LangGraph invoke (thread_id = sessionId)
   │     │
@@ -204,9 +183,9 @@ User: "login nahi ho raha"
   │     │
   │     ▼ END
   │
-  ▼ ⑤ history.service.ts - dono messages Postgres mein save
+  ▼ ⑤ history.service.ts - save both messages to Postgres
   │
-  ▼ ⑥ session.service.ts - currentAgent: "tech" update (TTL refresh)
+  ▼ ⑥ session.service.ts - currentAgent: "tech" updated (TTL refreshed)
   │
   ▼ ⑦ chat.gateway.ts - client.emit('chat:reply', {...})
   │
@@ -230,17 +209,17 @@ User: "Try clearing your browser cache first..."
 
 ---
 
-## Naya Specialist Agent Kaise Add Kare
+## How to Add a New Specialist Agent
 
-Teen changes - yahi LangGraph ka poora faayda hai:
+Three changes — this is the entire advantage of LangGraph:
 
-**1.** `src/agents/agent.types.ts` mein intent add karo:
+**1.** Add the intent in `src/agents/agent.types.ts`:
 ```ts
 export const INTENTS = ['tech', 'billing', 'sales', 'general', 'handoff'] as const;
-//                                          + 'legal' yahan
+//                                          + 'legal' here
 ```
 
-**2.** `src/agents/prompts.ts` mein prompt likho:
+**2.** Write the prompt in `src/agents/prompts.ts`:
 ```ts
 export const SPECIALIST_PROMPTS: Record<Intent, string> = {
   // ...
@@ -248,74 +227,65 @@ export const SPECIALIST_PROMPTS: Record<Intent, string> = {
 };
 ```
 
-**3.** `src/agents/specialist.agent.ts` mein subclass + graph mein node:
+**3.** Subclass in `src/agents/specialist.agent.ts` + add the node to the graph:
 ```ts
 @Injectable()
 export class LegalAgent extends SpecialistAgent {
   constructor(rag: RagService) { super('legal', rag); }
 }
 ```
-Phir `graph.service.ts` mein `.addNode('legal', ...)` aur
-`addConditionalEdges` ke array mein `'legal'` add kar do.
+Then add `.addNode('legal', ...)` in `graph.service.ts` and add `'legal'` to the `addConditionalEdges` array.
 
-Aur haan - `knowledge/` mein ek `legal-*.md` file daal do warna us agent ke
-paas search karne ko kuch nahi hoga.
+And yes — add a `legal-*.md` file in `knowledge/`, otherwise that agent will have nothing to search.
 
 ---
 
 ## Scripts
 
 ```bash
-npm run doctor       # har dependency ko individually verify karo
-npm run dev         # nest start --watch - tsc se compile, hot reload
-npm run build       # nest build -> dist/
-npm start           # production: node dist/main.js
-npm run typecheck   # tsc --noEmit
-npm run seed        # knowledge/ ko re-index karo (boot store khaali ho tab hi khud karta hai)
-npm run smoke       # running server ke against 4 intents test karo
+npm run doctor       # verify each dependency individually
+npm run dev          # nest start --watch - compiles with tsc, hot reload
+npm run build        # nest build -> dist/
+npm start            # production: node dist/main.js
+npm run typecheck    # tsc --noEmit
+npm run seed         # re-index knowledge/ (auto-runs on boot only if store is empty)
+npm run smoke        # test 4 intents against a running server
 ```
 
-### ⚠️ `npm run dev` mein `tsx` kyun nahi hai
+### ⚠️ Why `tsx` is not used in `npm run dev`
 
-NestJS ka DI `emitDecoratorMetadata` par depend karta hai, aur **esbuild
-(isco `tsx` use karta hai) woh metadata emit nahi karta**. Result: Nest ko
-constructor params ke bajaye `undefined` milte hain aur aapko yeh error
-aata hai:
+NestJS DI depends on `emitDecoratorMetadata`, and **esbuild (which `tsx` uses internally) does not emit that metadata**. Result: Nest receives `undefined` instead of constructor params, and you get this error:
 
 ```
 TypeError: Cannot read properties of undefined (reading 'getOrCreate')
 ```
 
-Ya seedha:
+Or directly:
 
 ```
 Nest can't resolve dependencies of the RouterAgent (?).
 ```
 
-`tsc` (jo `nest build` / `nest start` use karta hai) metadata sahi emit
-karta hai, isliye yahan `tsx` sirf `npm run seed` mein hai - jahan DI ki
-zaroorat hi nahi hai.
+`tsc` (which `nest build` / `nest start` uses) emits metadata correctly, so `tsx` is only used in `npm run seed` — where DI is not needed at all.
 
 ---
 
-## Learning Roadmap (is codebase ke against)
+## Learning Roadmap (against this codebase)
 
-| Week | Kya seekhna hai | Kahan dekhna hai |
+| Week | What to learn | Where to look |
 |---|---|---|
-| 1 | Socket.IO, events, connection | `chat.gateway.ts` |
-| 2 | LLM API, system prompt, provider fallback | `src/llm/` |
+| 1 | Socket.IO, events, connections | `chat.gateway.ts` |
+| 2 | LLM API, system prompts, provider fallback | `src/llm/` |
 | 3 | Embeddings, chunking, similarity search | `src/knowledge/` |
 | 4 | State graph, nodes, conditional edges | `src/agents/graph.service.ts` |
 | 5 | Redis TTL, Postgres schema, handoff tickets | `sessions/`, `history/`, `tickets/` |
 | 6 | Edge cases, README, demo | `scripts/smoke-test.js` |
 
-### Abhi SKIP karo (Phase 2)
+### SKIP for now (Phase 2)
 
-Auth/JWT · rate limiting · streaming responses · re-ranking · load
-balancing · Kubernetes · analytics dashboard · monitoring stack.
+Auth/JWT · rate limiting · streaming responses · re-ranking · load balancing · Kubernetes · analytics dashboard · monitoring stack.
 
-> Rule of thumb: agar feature ke bina demo chal jaata hai, toh woh Phase 2
-> mein jaata hai.
+> Rule of thumb: if the demo works without a feature, it goes into Phase 2.
 
 ---
 
@@ -323,13 +293,13 @@ balancing · Kubernetes · analytics dashboard · monitoring stack.
 
 | Symptom | Cause |
 |---|---|
-| `npm run doctor` se 404 | Model name deprecated hai - `GROQ_MODEL` / `GEMINI_MODEL` / `EMBEDDING_MODEL` badlo |
-| Chat box type karta nahi, console mein `io is not defined` | socket.io client load nahi hua. `/socket.io/socket.io.js` reachable hai? (CDN hata diya gaya hai, ab server khud serve karta hai) |
-| Reply hamesha "offline demo mode" bolta hai | `.env` mein LLM key khaali hai, server restart karo |
-| `429` error | Groq rate limit - Gemini key daalo, fallback khud lega |
-| `EADDRINUSE :::3000` | Port pe koi aur chal raha hai - `.env` mein `PORT` badlo (default 3100) |
-| `Cannot read properties of undefined` ya `can't resolve dependencies` | `tsx` se chala rahe ho - `npm run dev` use karo (upar note dekho) |
-| Nayi file `knowledge/` mein dali par search mein nahi aayi | Boot sirf tab ingest karta hai jab store khaali ho - `npm run seed` chalao |
-| Sources hamesha `0` | Embeddings local hash pe hain (Gemini key nahi). `RAG_MIN_SCORE_LOCAL` 0.08 se neeche karke try karo |
-| Sab kuch handoff ja raha hai | Router confidence `HANDOFF_THRESHOLD` (0.55) se neeche hai - message ko specific likho |
-| Qdrant 403 `forbidden` | Header `api-key` chahiye, `apikey` nahi - sirf custom scripts mein hoti hai, official client sahi hai |
+| 404 from `npm run doctor` | Model name is deprecated — change `GROQ_MODEL` / `GEMINI_MODEL` / `EMBEDDING_MODEL` |
+| Chat box doesn't type, console shows `io is not defined` | socket.io client didn't load. Is `/socket.io/socket.io.js` reachable? (CDN has been removed, the server now serves it itself) |
+| Reply always says "offline demo mode" | LLM key is empty in `.env`, restart the server |
+| `429` error | Groq rate limit — add a Gemini key, fallback will kick in automatically |
+| `EADDRINUSE :::3000` | Something else is running on that port — change `PORT` in `.env` (default 3100) |
+| `Cannot read properties of undefined` or `can't resolve dependencies` | You're running with `tsx` — use `npm run dev` instead (see note above) |
+| New file added to `knowledge/` but not showing up in search | Boot only ingests when the store is empty — run `npm run seed` |
+| Sources always `0` | Embeddings are on local hash (no Gemini key). Try lowering `RAG_MIN_SCORE_LOCAL` below 0.08 |
+| Everything goes to handoff | Router confidence is below `HANDOFF_THRESHOLD` (0.55) — write a more specific message |
+| Qdrant 403 `forbidden` | The header must be `api-key`, not `apikey` — this only happens in custom scripts; the official client handles it correctly |
